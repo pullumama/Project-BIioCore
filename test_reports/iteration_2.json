@@ -1,0 +1,55 @@
+{
+  "summary": "Focused frontend re-test after E1's gyroid bug-fix attempt. RESULT: Gyroid visual bug is NOT fixed. At all three requested cell sizes (12mm, 6mm dense, 18mm coarse) and in Unit Cell mode, the gyroid still renders with (a) a field of sharp triangular spikes protruding outward from the surface, and (b) large black holes tearing the surface, and (c) an obviously faceted / jagged appearance instead of a smooth continuous solid wall. Fails the acceptance criterion 'field of sharp spikes / obvious holes tearing the surface = FAIL'. Everything else in the app works: metrics populate numerically for all patterns (Gyroid cell=12 -> G=152.5 MPa / f=1288 Hz / zeta=0.0139 / rho=162.8 kg/m^3; cell=6 -> 294.7/1266/0.0102/325.5; cell=18 -> 103.8/1301/0.0167/108.5), no uncaught JS/pageerror events, loading overlay clears within a few seconds (no >30s hang), Full Core / Unit Cell toggle rebuilds the model, honeycomb/lotus/spider-web regressions all still render correctly, and Export STL for gyroid produces a valid file (gyroid_core.stl, 43.5 MB).",
+  "ai_feature_verdicts": [
+    "Gyroid solid-surface fix (primary) - FAIL - evidence: screenshots gyroid_cell12_core.jpeg, gyroid_cell6_core.jpeg, gyroid_cell18_core.jpeg, gyroid_cell12_unitcell.jpeg all show radial sharp spikes on the boundary and large black holes; especially visible at cell=18 (many sharp cones on top edge) and cell=12 (large black gaps through the sheet). Not a smooth solid gyroid. - skill: n/a",
+    "Gyroid load performance - pass - evidence: model-loading overlay disappears in <5s for every cell size tested; no browser freeze - skill: n/a",
+    "Gyroid metrics populate - pass - evidence: metric-shear/freq/damping/density all numeric for every gyroid case - skill: n/a",
+    "No JS console errors - pass - evidence: 0 pageerror events; only a benign THREE.Clock deprecation warning from drei internals - skill: n/a",
+    "Regression honeycomb - pass - evidence: honeycomb.jpeg shows clean edge-to-edge hexagon lattice, metrics 105.2 / 1120 / 0.0076 / 144.2 - skill: n/a",
+    "Regression lotus - pass - evidence: lotus.jpeg shows hexagon lattice with an inner circle in every cell - skill: n/a",
+    "Regression spider-web - pass - evidence: spiderweb.jpeg renders full 80x80 core populated with the hierarchical orb-web motif - skill: n/a",
+    "Full Core / Unit Cell toggle - pass - evidence: mode-cell-btn switches to unit cell (title 'Unit cell'), mode-core-btn switches back and the model rebuilds within 1s - skill: n/a",
+    "Export STL (gyroid) - pass - evidence: expect_download captured 'gyroid_core.stl' size 43,566,826 bytes without error - skill: n/a"
+  ],
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "Viewer3D / buildGyroid", "issue": "Gyroid TPMS still renders with sharp radial triangular spikes and large tearing holes at cell=6, 12, 18 and in Unit Cell mode. Fix attempt (marchingTets below/above split + double iso-surface +c/-c + analytic normals + res cap) did NOT eliminate the spikes/holes. Root cause is most likely (1) merging the +c and -c iso-surfaces without CAPPING the open boundary where the wall exits the bounding box -> the sheet is open along its silhouette and shading shows through, and (2) the marching-tetrahedra 2-below/2-above quad still winds the quad's diagonal inconsistently vs. its triangle-fan neighbour -> long stray triangles ('spikes') appear at saddle voxels. The isosurface also has no boundary-clip: any tet whose vertex lies outside a solid domain (e.g. above +HEIGHT/2) still emits triangles because the field is periodic and doesn't 'know' about the box. Recommend: (a) close/cap the wall on the six bounding faces (emit boundary polygons where c<=f<=+c crosses the wall), (b) verify quad diagonal is chosen by the edge that separates the two 'below' vertices (currently the code assumes A-C, A-D, B-D, B-C but the correct planar quad ordering depends on tetra edge topology; the two valid triangulations are (AC,AD,BD)+(AC,BD,BC) OR (AC,AD,BC)+(AD,BD,BC); wrong choice creates a bow-tie / spike), (c) alternatively fall back to marching-cubes with lookup table (js-marching-cubes) for TPMS.", "selector": "[data-testid='viewer-3d']", "priority": "HIGH"}
+    ],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Gyroid render", "issues": ["Purple/magenta specular highlights visible on some triangles inside the gyroid -> indicates back-face normal inversion (normalSign) is inconsistent between the two iso-surfaces or between adjacent triangles; a purely convex-lit blue material should never show that hue."]}
+    ]
+  },
+  "test_report_links": [
+    "/app/test_reports/iteration_2.json",
+    "/root/.emergent/.screenshots/gyroid_cell12_core.jpeg",
+    "/root/.emergent/.screenshots/gyroid_cell6_core.jpeg",
+    "/root/.emergent/.screenshots/gyroid_cell18_core.jpeg",
+    "/root/.emergent/.screenshots/gyroid_cell12_unitcell.jpeg",
+    "/root/.emergent/.screenshots/honeycomb.jpeg",
+    "/root/.emergent/.screenshots/lotus.jpeg",
+    "/root/.emergent/.screenshots/spiderweb.jpeg"
+  ],
+  "action_items": [
+    "Gyroid bug still present. Re-implement TPMS iso-surface. Recommended approach: use a proper marching-cubes implementation (e.g. isosurface / marching-cubes-3d npm) OR fix the current marching-tets in two ways: (1) correct the 2v/2v quad triangulation so the shared diagonal is the edge between the two below-vertices' cuts, and (2) add DOMAIN-BOUNDARY CAPPING so the resulting mesh is watertight where the wall exits the bounding box (cap on x=+-extent, y=+-HEIGHT/2, z=+-extent).",
+    "Consider raising 'wall' contribution to 'c' (currently c = min(0.9, max(0.12, wall*k*1.3/2))) - at wall=0.5, cell=12: k=2pi/12=0.524, c=0.5*0.524*1.3/2=0.170 which is fine, but at cell=6 c grows to 0.34 and near-saturates. The bounded c is not the issue, but merging with capping IS.",
+    "Investigate purple/magenta highlights (likely normalSign mismatch between gA and gB sub-meshes).",
+    "STL file for gyroid is 43 MB - consider mesh decimation before export."
+  ],
+  "critical_code_review_comments": [
+    "geometry.js buildGyroid merges two separate marching-tets outputs without any boundary capping - the resulting mesh is never watertight, which is why 'holes' appear at the silhouette.",
+    "marchingtets.js quad triangulation (A-C,A-D,B-D,B-C) is a plausible order but assumes a specific tetra vertex layout; the six tets in TETS have different local topologies so the same 2-below index pattern maps to different edge geometries. A single hardcoded diagonal will bow-tie roughly 1/6th of the quad cases, producing exactly the kind of long spikes visible.",
+    "normalSign is applied as a scalar divisor on the gradient magnitude (l = (|g|||1) * normalSign) which does NOT flip the normal direction - it only makes l negative and thus negates the components once, so it currently works, but is semantically fragile; safer to compute unit normal then multiply by normalSign.",
+    "resolution cap 'cap' of 56 combined with 24 in Y still produces 56*24*56*6 tets ~= 450k -> ~1M triangles for the wall; expensive and explains the 43MB STL. Consider marching-cubes at 48^3.",
+    "Viewer3D still has no error boundary for geometry build failures; a bad iso-surface would show a blank canvas without user feedback."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "not-tested (unchanged, previous 100%)", "frontend": "8/9 flows pass (89%) - gyroid visual fix FAILS"},
+  "test_credentials": "N/A (no auth)",
+  "seed_data_creation": "None.",
+  "retest_needed": true,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Use URL params to switch pattern quickly: ?pattern=gyroid&cell=12[&mode=cell]. Poll [data-testid='model-loading'] to disappear (~<5s in this environment - no 30s hang observed). Gyroid still needs work; every other feature (patterns, sliders, toggle, STL export) is fine. See /root/.emergent/.screenshots/ for the current failing screenshots.",
+  "rca of the issue": "Gyroid TPMS is built by running marchingTets twice (iso = +c and iso = -c) and merging the two open sheets. Two structural problems remain: (1) neither sheet is closed at the bounding-box faces, so the mesh has open perimeters that show as 'holes' when viewed from an angle; (2) the 2-below/2-above tetra case emits a fixed diagonal (A-C ; A-D ; B-D ; B-C) but the six tets that decompose a cube have different local vertex layouts, so on ~1/6 of the quad cases the diagonal bow-ties, producing the long triangular 'spikes' the user reported. The 'fix' addressed part of the winding but did not add domain capping nor topology-aware diagonal selection. Reproduction: open https://dynamiccoreai.preview.emergentagent.com/?pattern=gyroid&cell=18 and observe sharp cones on the outline plus obvious black holes through the sheet. Mitigation: switch iso-surfacing to a marching-cubes implementation (deterministic 256-case table) and add boundary capping OR fix diagonal selection per-tet."
+}

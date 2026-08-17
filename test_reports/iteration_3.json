@@ -1,0 +1,53 @@
+{
+  "summary": "Focused frontend re-test of gyroid bug fix (iteration 3). RESULT SUMMARY: Bug 2 (uniform color) is FIXED - gyroid is now a uniform blue with no purple/magenta patches under all cell sizes and modes. Bug 1 (smooth continuous solid) is IMPROVED but NOT fully fixed: the previous radial triangular spikes at the silhouette are GONE (outline is smooth/rounded) and the mesh looks watertight at the domain caps. However the surface still exhibits heavy triangulated faceting (marching-tets tessellation clearly visible as a 'camo' texture) and at cell=14/18 there are numerous small dark specks distributed across the top surface in addition to the regularly-spaced round gyroid channels - some are the expected channels, but many small dark speckles also appear between channels which look like residual thin-wall aliasing holes; at cell=8 (dense) the faceting is very heavy and small tearing holes are visible. Regressions all pass: honeycomb/lotus/spiderweb still render as clean edge-to-edge lattices with uniform blue color. Full Core / Unit Cell toggle rebuilds correctly. Export STL for gyroid produced a 65.6 MB gyroid_core.stl download without error. Zero uncaught JS/pageerror events; only benign THREE.Clock deprecation warning from drei internals. Loading overlay clears in <1s for every case (no >30s hang, no reload race observed).",
+  "ai_feature_verdicts": [
+    "Gyroid uniform color (Bug 2) - PASS - evidence: gyroid_cell14_core.jpeg, gyroid_cell8_core.jpeg, gyroid_cell18_core.jpeg, gyroid_cell14_unitcell.jpeg all show uniform blue surface. No purple/magenta patches. Lighting fix confirmed.",
+    "Gyroid smooth continuous solid (Bug 1) - PARTIAL / borderline FAIL - evidence: silhouette is smooth (no sharp radial spikes as in iteration 2), watertight boundary capping works at cell=14/18. But surface has strong triangular faceting texture and small dark spots between channels suggest residual holes especially at cell=8 (dense). Not the 'field of spikes / torn holes' of iteration 2, but not a visually smooth continuous solid either.",
+    "Gyroid load performance - PASS - overlay clears in <1s each case.",
+    "Gyroid metrics populate - PASS - cell=14 core: 131.8/1293/0.0149/139.5; cell=8: 224.2/1275/0.0116/244.1; cell=18: 103.8/1301/0.0167/108.5.",
+    "No JS console errors - PASS - 0 pageerror events across the run.",
+    "Regression honeycomb - PASS - edge-to-edge hexagons, uniform blue, metrics 105.2/1120/0.0076/144.2.",
+    "Regression lotus - PASS - hex + inner circle per cell, uniform blue, metrics 74.9/985/0.0134/126.6.",
+    "Regression spider-web - PASS - orb-web motif tiled, uniform blue, metrics 32.1/731/0.0229/95.6.",
+    "Full Core / Unit Cell toggle - PASS - mode-cell-btn activates and title changes to 'Unit cell'; mode-core-btn restores full core; models rebuild within 1s.",
+    "Export STL (gyroid) - PASS - gyroid_core.stl downloaded, 65,636,194 bytes, no errors, 'STL exported' toast shown."
+  ],
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "Viewer3D / buildGyroid", "issue": "Gyroid surface, while now uniformly blue and free of the earlier sharp radial spikes, still shows strongly faceted triangular tessellation and a scatter of small dark specks between the expected gyroid channels - especially at cell=8. These look like residual thin-wall aliasing (wall thickness ~2c/k is < voxel size at small cell sizes because c is bounded at 0.55+0.35=0.9 max but at cell=8 k=0.785 so wall spans ~2.3mm vs voxel size ~2.4mm - marginal). The intent stated as 'c sized so the wall spans >=~2 voxels' is not enforced dynamically as a function of voxel size; c is a fixed formula of wall thickness only.", "selector": "[data-testid='viewer-3d']", "priority": "MEDIUM"}
+    ],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Gyroid render", "issues": ["Marching-tets triangulation is very visible as 'faceted camo' texture on the wall. Consider smoothing normals more aggressively OR increasing resolution when cell is small OR switching to marching-cubes with a coarser but cleaner topology. STL is 65.6 MB which is large - consider mesh simplification/decimation before export."]}
+    ]
+  },
+  "test_report_links": [
+    "/app/test_reports/iteration_3.json",
+    "/root/.emergent/automation_output/20260812_061211/gyroid_cell14_core.jpeg",
+    "/root/.emergent/automation_output/20260812_061211/gyroid_cell8_core.jpeg",
+    "/root/.emergent/automation_output/20260812_061211/gyroid_cell18_core.jpeg",
+    "/root/.emergent/automation_output/20260812_061211/gyroid_cell14_unitcell.jpeg",
+    "/root/.emergent/automation_output/20260812_061211/honeycomb.jpeg",
+    "/root/.emergent/automation_output/20260812_061211/lotus.jpeg",
+    "/root/.emergent/automation_output/20260812_061211/spiderweb.jpeg"
+  ],
+  "action_items": [
+    "Optional polish: reduce residual triangular faceting on the gyroid surface. Recommended: (a) tie c to voxel size so wall spans >=2 voxels at every cell (e.g. c = max(current_c, 1.2 * max(vx,vy,vz) * k / 2) but capped at ~0.9), (b) bump resolution at small cell sizes (cell<=8) - current cap capN=66 combined with ry cap 28 may under-resolve, (c) consider marching-cubes with a 256-case lookup for cleaner facets, (d) mesh decimation before STL export to drop 65MB output."
+  ],
+  "critical_code_review_comments": [
+    "geometry.js buildGyroid: c formula (0.55 + f(wall)) is independent of voxel size, so at dense cell sizes the wall can under-resolve. Enforce c-vs-voxel coupling as the design intent claimed.",
+    "geometry.js buildGyroid: rx/ry caps (66,28) are conservative and produce visible facets; scaling with core extent is fine but the ry cap of 28 for a 10mm-tall core with cell=8 gives dy ~0.36mm - fine on Y, so the artifacts come from the XZ sampling not the wall thickness.",
+    "marchingtets.js: no vertex welding / merging is done, so per-triangle vertices are duplicated. This is why the STL is 65 MB. Weld coincident vertices before returning (dedupe by quantized position key) - would also enable smoother shading.",
+    "Viewer3D.jsx: still no error boundary around the geometry build; a bad iso-surface would show blank canvas.",
+    "STL export size ~65 MB for gyroid is user-hostile; consider decimation or exporting a lower-res mesh."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "not-tested (unchanged)", "frontend": "9/10 features pass; Gyroid Bug 1 partial (color fix confirmed, spikes gone, some residual faceting/aliasing)"},
+  "test_credentials": "N/A (no auth)",
+  "seed_data_creation": "None.",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Use ?pattern=gyroid&cell=N[&mode=cell] to switch quickly. model-loading overlay clears within 1s in this env. If E1 does a further polish pass on gyroid surface quality (facets/aliasing), retest visual smoothness at cell=8, 14, 18. STL export currently ~65MB - if decimation is added, verify STL size decreases and file still opens.",
+  "rca of the issue": "Bug 2 (color) root cause was the extra purple fill light + shiny material; removing it and using MeshStandardMaterial(roughness=0.8, metalness=0) with neutral ambient+hemisphere+directional now gives uniform blue - confirmed. Bug 1 (spikes/holes) root cause was open iso-surface merging with wrong-diagonal quad triangulation; the rewrite to h=c-|f| with boundary sentinel capping (SENT=-5 outside domain) closes the silhouette cleanly - no more radial spikes. Residual issue: the mesh is still visibly faceted and at small cell sizes the wall is under-resolved relative to voxel size so a scatter of small dark specks (thin-wall aliasing) remains. Fixing this requires coupling c to voxel size (design intent stated in the review request but not actually implemented in buildGyroid) and/or increasing resolution / adding vertex welding."
+}
